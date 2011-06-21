@@ -2,87 +2,79 @@ package com.bizo.markov.algorithm
 
 import com.bizo.markov.model._
 
-class ForwardAlgorithm(implicit val model: HiddenMarkovModel) {
+class ForwardBackwardAlgorithm(val observations: IndexedSeq[Int])(implicit val model: HiddenMarkovModel) {
   import model._
   import scala.collection.mutable.{ Map, HashMap }
 
-  private val cache: Map[(IndexedSeq[Int], Int), Double] = new HashMap
+  private val alphaCache: Map[(Int, Int), Double] = new HashMap
+  private val betaCache: Map[(Int, Int), Double] = new HashMap
 
-  def alpha(observations: IndexedSeq[Int], state: Int): Double = {
-    val key = (observations, state)
-    if (cache contains key) {
-      cache(key)
+  /*
+   * What is the probability of having seen observations 0 through (t-1) and ending up at state j at time (t-1)? 
+   */
+  def alpha(t: Int, j: Int): Double = {
+    val key = (t, j)
+    if (alphaCache contains key) {
+      alphaCache(key)
     } else {
-      val result = if (observations.length > 1) {
+      val result = if (t > 1) {
         ((0 to numberOfStates - 1) map { i =>
-          alpha(observations dropRight 1, i) * A(i, state)
-        } sum) * B(state, observations.last)
+          alpha(t - 1, i) * A(i, j)
+        } sum) * B(j, observations(t - 1))
       } else {
-        Pi(state) * B(state, 1)
+        Pi(j) * B(j, observations.head)
       }
-      cache(key) = result
+      alphaCache(key) = result
       result
     }
   }
 
-  /** Alias for alpha. */
-  def apply(observations: IndexedSeq[Int], state: Int) = alpha(observations, state)
-
-}
-
-class BackwardAlgorithm(implicit val model: HiddenMarkovModel) {
-  import model._
-  import scala.collection.mutable.{ Map, HashMap }
-
-  private val cache: Map[(IndexedSeq[Int], Int), Double] = new HashMap
-
-  def beta(observations: IndexedSeq[Int], state: Int): Double = {
-    val key = (observations, state)
-    if (cache contains key) {
-      cache(key)
+  /* 
+   * Having seen observations 0 through (t-1) and knowing that the current state is i, what is the probability of seeing 
+   * the observations at times t and greater? 
+   */
+  def beta(t: Int, i: Int): Double = {
+    val key = (t, i)
+    if (betaCache contains key) {
+      betaCache(key)
     } else {
-      val result = if (observations.length > 0) {
+      val result = if (t < observations.length) {
         (0 to numberOfStates - 1) map { j =>
-          A(state, j) * B(j, observations.head) * this(observations tail, j)
+          A(i, j) * B(j, observations(t)) * beta(t + 1, j)
         } sum
       } else {
         1.0
       }
-      cache(key) = result
+      betaCache(key) = result
       result
     }
   }
 
-  /** Alias for beta. */
-  def apply(observations: IndexedSeq[Int], state: Int): Double = beta(observations, state)
-}
+  /*
+   * Given all observations, what is the probability of being in state i at time (t-1)?
+   */
+  def gamma(t: Int, i: Int): Double = {
+    def f(j: Int) = alpha(t,j) * beta(t,j) 
+    
+    val numerator = f(i)
+    val denominator = (0 to numberOfStates - 1) map(f) sum
 
-object ForwardBackwardTestMain extends Application {
-
-  implicit val _ = new HiddenMarkovModel(2, 2) {
-    // init A
-    (0 to numberOfStates - 1) foreach { i =>
-      (0 to numberOfStates - 1) foreach { j =>
-        A(i, j) = 1.0 / numberOfStates
-      }
-    }
-
-    // init B
-    (0 to numberOfObservations - 1) foreach { k =>
-      (0 to numberOfStates - 1) foreach { j =>
-        B(j, k) = if (j == k) .75 else .25
-      }
-    }
-
-    // init Pi
-    (0 to numberOfStates - 1) foreach { i =>
-      Pi(i) = 1.0 / numberOfStates
-    }
+    numerator / denominator
   }
 
-  val observations = Array(1)
+  /*
+   * Given all observations, what is the probability of being in state i at time (t-1) and state j at time t?
+   */
+  def xi(t: Int, i: Int, j: Int): Double = {
+    def f(x: Int,y: Int) = alpha(t, x) * A(x, y) * B(y, observations(t)) * beta(t+1, y)
+    
+    val numerator = f(i,j)
+    val denominator = (0 to numberOfStates - 1) flatMap { x =>
+      (0 to numberOfStates - 1) map { y =>
+        f(x,y)
+      }
+    } sum
 
-  Console.println(new ForwardAlgorithm().alpha(observations, 1))
-  Console.println(new BackwardAlgorithm().beta(observations, 1))
-
+    numerator / denominator
+  }
 }

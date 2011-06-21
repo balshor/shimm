@@ -2,72 +2,35 @@ package com.bizo.markov.algorithm
 
 import com.bizo.markov.model._
 
-class ViterbiAlgorithm(implicit val model: HiddenMarkovModel) {
+class ViterbiAlgorithm(val observations: Seq[Int])(implicit val model: HiddenMarkovModel) {
   import model._
-  import scala.collection.mutable.{ Map, HashMap }
+  import scala.collection.mutable.{ Map, HashMap, ArrayBuffer }
 
-  private val cache: Map[(IndexedSeq[Int], Int), Double] = new HashMap
+  private val cache: Map[(Int, Int), (Double, Seq[Int])] = new HashMap
 
-  // \delta_t(i)
-  def computeProbability(observations: IndexedSeq[Int], state: Int): Double = {
-    if (cache contains (observations, state)) {
-      cache((observations, state))
+  /** Computes (delta_t(i), psi_t(i)) */
+  def apply(t: Int, i: Int): (Double, Seq[Int]) = {
+    
+    implicit val cmp = new Ordering[(Double,Seq[Int])] {
+      def compare(x: (Double, Seq[Int]),y: (Double, Seq[Int])): Int = {
+        java.lang.Double.compare(x._1, y._1)
+      }
+    }
+    
+    if (cache contains (t, i)) {
+      cache((t,i))
     } else {
-      val result = if (observations.length == 1) {
-        Pi(state) * B(state, 1)
+      val result: (Double, Seq[Int]) = if (t == 1) {
+        (Pi(i) * B(i,observations(t-1)), Seq(i))
       } else {
-        (0 to numberOfStates - 1) map { i =>
-          computeProbability(observations dropRight 1, i) * A(i, state) * B(state, observations.last)
+        (0 to numberOfStates - 1) map { j =>
+          val previousResult: (Double, Seq[Int]) = apply(t-1, j)
+          (previousResult._1 * A(j,i) * B(i,observations(t-1)), previousResult._2 :+ j)
         } max
       }
-      cache((observations, state)) = result
+      cache((t,i)) = result
       result
     }
   }
-
-  // P^*
-  def computeProbability(observations: IndexedSeq[Int]): Double = {
-    (0 to numberOfStates - 1) map { i =>
-      computeProbability(observations, i)
-    } max
-  }
-
-  // q_T^*
-  def apply(observations: IndexedSeq[Int]): IndexedSeq[Int] = {
-    if (observations.length == 0) {
-      IndexedSeq()
-    } else {
-      this(observations dropRight 1) :+ ((0 to numberOfStates - 1) map { i =>
-        (computeProbability(observations, i), i)
-      } max)._2
-    }
-  }
-
-}
-
-object ViterbiAlgorithmTestMain extends Application {
-  implicit val _ = new HiddenMarkovModel(2, 2) {
-    // init A
-    (0 to numberOfStates - 1) foreach { i =>
-      (0 to numberOfStates - 1) foreach { j =>
-        A(i, j) = 1.0 / numberOfStates
-      }
-    }
-
-    // init B
-    (0 to numberOfObservations - 1) foreach { k =>
-      (0 to numberOfStates - 1) foreach { j =>
-        B(j, k) = if (j != k) 2.0/3 else 1.0/3
-      }
-    }
-
-    // init Pi
-    (0 to numberOfStates - 1) foreach { i =>
-      Pi(i) = 1.0 / numberOfStates
-    }
-  }
-
-  val observations = Array(1, 0, 1, 0)
-
-  println(new ViterbiAlgorithm().apply(observations))
+  
 }
